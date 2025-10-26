@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtSql import QSqlDatabase, QSqlQuery
 from PySide6.QtGui import QStandardItemModel, QStandardItem
 
-class LocationTreeWidget(QWidget): # Rinominiamo per chiarezza
+class LocationManagerWidget(QWidget): # Rinominiamo per chiarezza
     # Segnale personalizzato: emette l'ID del locale quando viene selezionato
     locale_selected_signal = Signal(int)
 

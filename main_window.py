@@ -1,13 +1,13 @@
 from PySide6.QtWidgets import (
-    QMainWindow, QListWidget, QSplitter, QListWidgetItem,
-    QMessageBox, QVBoxLayout, QWidget, QLabel
+    QMainWindow, QMessageBox, QWidget, QHBoxLayout, QVBoxLayout, 
+    QStackedWidget # Aggiunti QHBoxLayout, QVBoxLayout, QStackedWidget
 )
 from PySide6.QtSql import QSqlDatabase, QSqlQuery
 from PySide6.QtCore import Qt
 
 from widget.porta_widget import PortaDetailWidget
 # Importiamo la nuova classe rinominata
-from widget.location_manager import LocationTreeWidget
+from widget.location_manager import LocationManagerWidget
 
 class MainWindow(QMainWindow):
     def __init__(self, db: QSqlDatabase):
@@ -15,51 +15,55 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Gestione Inventario Impianti (Vista Unificata)")
         self.setGeometry(100, 100, 1200, 700) # Un po' più largo per i 3 pannelli
         self.db = db
-        if not db or not db.isOpen(): return
+        if not db or not db.isOpen():
+             QMessageBox.critical(self, "Errore", "Connessione DB non valida.")
+             return
 
         self.setup_ui()
         # Carica inizialmente tutte le porte
         self.load_door_list(locale_id=-1)
 
     def setup_ui(self):
-        # SPLITTER PRINCIPALE (Orizzontale)
-        main_splitter = QSplitter(Qt.Horizontal)
-        self.setCentralWidget(main_splitter)
+        # Widget centrale e layout principale orizzontale
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(5, 5, 5, 5) # Margini piccoli
+        main_layout.setSpacing(5)
 
-        # --- PANNELLO 1 (Sinistra): Albero Posizioni ---
-        self.tree_panel = LocationTreeWidget(self.db)
+        # --- Pannello Navigazione Sinistro ---
+        navigation_panel = QWidget()
+        nav_layout = QVBoxLayout(navigation_panel)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        navigation_panel.setMaximumWidth(300) # O la larghezza che preferisci
 
-        # --- PANNELLO 2 (Centro): Lista Porte ---
-        # Usiamo un widget contenitore per potergli dare un titolo
-        center_widget = QWidget()
-        center_layout = QVBoxLayout(center_widget)
-        center_layout.setContentsMargins(0,0,0,0)
-        self.center_label = QLabel("Elenco Porte")
-        self.center_label.setStyleSheet("font-weight: bold; padding: 5px;")
-        self.door_list_widget = QListWidget()
-        center_layout.addWidget(self.center_label)
-        center_layout.addWidget(self.door_list_widget)
+        # L'albero va nel pannello di navigazione
+        self.asset_tree = LocationManagerWidget(self.db)
+        nav_layout.addWidget(self.asset_tree)
 
-        # --- PANNELLO 3 (Destra): Dettaglio Porta ---
-        self.detail_panel = PortaDetailWidget(self.db)
+        # --- Area Contenuti Destra (Stacked Widget) ---
+        self.main_stack = QStackedWidget()
 
-        # Aggiungiamo tutto allo splitter principale
-        main_splitter.addWidget(self.tree_panel)
-        main_splitter.addWidget(center_widget)
-        main_splitter.addWidget(self.detail_panel)
+        # Aggiungi le pagine allo stack
+        self.placeholder_page = QWidget() # Pagina vuota iniziale
+        self.detail_widget = PortaDetailWidget(self.db) # Il tuo widget dettaglio porta
 
-        # Impostiamo le dimensioni iniziali dei 3 pannelli
-        main_splitter.setSizes([250, 300, 650])
-        # Rende i pannelli laterali "collassabili" se si restringe troppo la finestra
-        main_splitter.setCollapsible(0, False)
-        main_splitter.setCollapsible(1, False)
+        self.main_stack.addWidget(self.placeholder_page) # Indice 0
+        self.main_stack.addWidget(self.detail_widget)    # Indice 1
 
-        # --- CONNESSIONI SEGNALI ---
-        # 1. Se seleziono un locale nell'albero -> Filtra la lista centrale
-        self.tree_panel.locale_selected_signal.connect(self.load_door_list)
+        # (Aggiungi qui futuri widget dettaglio per Locali, Edifici, etc.)
+        # self.locale_detail_widget = LocaleDetailWidget(self.db)
+        # self.main_stack.addWidget(self.locale_detail_widget) # Indice 2 ...
 
-        # 2. Se seleziono una porta nella lista centrale -> Mostra dettagli a destra
-        self.door_list_widget.currentItemChanged.connect(self.on_door_selected)
+        # Aggiungi i due pannelli principali al layout orizzontale
+        main_layout.addWidget(navigation_panel)
+        main_layout.addWidget(self.main_stack, stretch=1) # Dà più spazio allo stack
+
+        # Connessione del segnale dall'albero allo slot
+        self.asset_tree.item_selected.connect(self.on_asset_selected)
+
+        # Inizia mostrando la pagina placeholder
+        self.main_stack.setCurrentIndex(0)
 
     def load_door_list(self, locale_id=-1):
         """
@@ -91,5 +95,37 @@ class MainWindow(QMainWindow):
             return
         porta_id = current_item.data(Qt.UserRole)
         self.detail_panel.load_porta_data(porta_id)
+        
+    def on_asset_selected(self, item_type: str, item_id: int):
+        """
+        Chiamato quando un item nell'albero viene cliccato.
+        Cambia la pagina nello StackedWidget e carica i dati.
+        """
+        if item_type == "porta":
+            # Cambia alla pagina del dettaglio porta
+            self.main_stack.setCurrentWidget(self.detail_widget)
+            # Carica i dati della porta selezionata
+            self.detail_widget.load_porta_data(item_id)
+        # --- Esempi per il futuro ---
+        # elif item_type == "locale":
+        #     # Cambia alla pagina del dettaglio locale (da creare)
+        #     # self.main_stack.setCurrentWidget(self.locale_detail_widget)
+        #     # self.locale_detail_widget.load_locale_data(item_id)
+        #     # Per ora, torna alla pagina vuota se non c'è dettaglio
+        #     self.main_stack.setCurrentIndex(0)
+        #     self.detail_widget.clear_form() # Pulisce anche il form porta
+        # elif item_type == "edificio":
+        #      # Cambia alla pagina del dettaglio edificio (da creare)
+        #     # self.main_stack.setCurrentWidget(self.edificio_detail_widget)
+        #     # self.edificio_detail_widget.load_edificio_data(item_id)
+        #     # Per ora, torna alla pagina vuota
+        #     self.main_stack.setCurrentIndex(0)
+        #     self.detail_widget.clear_form()
+        else:
+            # Per tutti gli altri tipi (Piani, Edifici al momento) o se non valido
+            # mostra la pagina placeholder iniziale
+            self.main_stack.setCurrentIndex(0)
+            # Assicurati che il form dettaglio porta sia pulito
+            self.detail_widget.clear_form()
 
     # (closeEvent rimane uguale)
