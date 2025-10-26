@@ -1,0 +1,5 @@
+[project]
+name = "PySide Project"
+
+[tool.pyside6-project]
+files = ["database/database_setup.py", "main.py", "main_window.py", "widget/location_manager.py", "widget/porta_widget.py"]
