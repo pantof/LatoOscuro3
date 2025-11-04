@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QMessageBox, QWidget, QHBoxLayout, QVBoxLayout, 
     QStackedWidget # Aggiunti QHBoxLayout, QVBoxLayout, QStackedWidget
 )
-from PySide6.QtSql import QSqlDatabase, QSqlQuery
+from PySide6.QtSql import QSqlDatabase
 from PySide6.QtCore import Qt
 
 from widget.porta_widget import PortaDetailWidget
@@ -21,7 +21,7 @@ class MainWindow(QMainWindow):
 
         self.setup_ui()
         # Carica inizialmente tutte le porte
-        self.load_door_list(locale_id=-1)
+        #self.load_door_list(locale_id=-1)
 
     def setup_ui(self):
         # Widget centrale e layout principale orizzontale
