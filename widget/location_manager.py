@@ -120,48 +120,13 @@ class LocationManagerWidget(QWidget): # Rinominiamo per chiarezza
                 # Espandi i primi livelli
         self.tree_view.expandToDepth(1)
 
-def on_item_clicked(self, index: QModelIndex):
-        """Attivato quando l'utente clicca un item nell'albero."""
+    def on_item_clicked(self, index: QModelIndex):
         if not index.isValid():
-            # Potrebbe emettere un segnale per pulire il dettaglio
-            # self.item_selected.emit(None, -1)
             return
-
-        # Ottieni l'item QStandardItem dall'indice
         item = self.model.itemFromIndex(index)
-        if not item: return
-
-        # Recupera il tipo e l'ID che abbiamo salvato con setData
+        if not item:
+            return
         item_type = item.data(Qt.UserRole + 1)
         item_id = item.data(Qt.UserRole)
-
-        # Emetti il segnale solo se abbiamo dati validi
         if item_type and item_id is not None:
-            print(f"Albero cliccato: Tipo={item_type}, ID={item_id}") # Debug
             self.item_selected.emit(item_type, item_id)
-        else:
-            # Caso in cui non ci sono dati associati (es. root?)
-            # Potresti voler emettere un segnale per pulire il dettaglio
-             print(f"Albero cliccato: Item senza dati validi.") # Debug
-             # self.item_selected.emit(None, -1)
-             pass
-
-    # La vecchia funzione on_selection_changed non serve più
-    # def on_selection_changed(self, current, previous):
-    #    ...
-    # def on_selection_changed(self, current, previous):
-        # """Attivato quando l'utente clicca sull'albero."""
-        # if not current.isValid(): return
-
-        # item_type = current.data(Qt.UserRole + 1)
-
-        # if item_type == "locale":
-            # locale_id = current.data(Qt.UserRole)
-            # # Emette il segnale con l'ID del locale selezionato
-            # self.locale_selected_signal.emit(locale_id)
-        # elif item_type == "root":
-             # # Se clicca su "Tutte le porte", emettiamo -1 (codice per "tutto")
-             # self.locale_selected_signal.emit(-1)
-        # else:
-            # # Se clicca su Edificio o Piano, per ora non facciamo nulla (o potremmo filtrare anche per quelli)
-            # pass
