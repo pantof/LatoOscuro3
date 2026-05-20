@@ -1,105 +1,148 @@
 # This Python file uses the following encoding: utf-8
 
-# if __name__ == "__main__":
-#     pass
-# In 'porta_widget.py'
-
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QLineEdit, QComboBox,
-    QTextEdit, QListWidget, QPushButton, QMessageBox, QSplitter, QLabel
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
+    QLineEdit, QComboBox, QTextEdit, QLabel,
+    QTableWidget, QTableWidgetItem, QListWidget,
+    QPushButton, QMessageBox, QSplitter, QHeaderView, QAbstractItemView
 )
 from PySide6.QtSql import QSqlDatabase, QSqlQuery, QSqlError
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QDate
+from PySide6.QtGui import QColor
+
+from widget.dispositivo_dialog import DispositivoDialog
+
+# Soglia (giorni) entro cui la garanzia è considerata "in scadenza"
+SOGLIA_SCADENZA_GIORNI = 90
+
+# Colori riga garanzia
+COLOR_SCADUTA   = QColor(255, 170, 170)   # rosso chiaro
+COLOR_IN_SCADENZA = QColor(255, 220, 130) # giallo/arancio
+
 
 class PortaDetailWidget(QWidget):
 
-    def __init__(self, db: QSqlDatabase, parent=None):
-        # ... (il costruttore __init__ rimane identico) ...
-        super().__init__(parent)
+    COLS_DEV = ["Tipo", "Modello", "Matricola/SN", "Installato il", "Garanzia", "Scade il", "Stato", "Fornitore"]
 
+    def __init__(self, db: QSqlDatabase, parent=None):
+        super().__init__(parent)
         if not db or not db.isOpen():
             QMessageBox.critical(self, "Errore", "Connessione al database non valida.")
             return
-
         self.db = db
         self.current_porta_id = None
-
-        self.setup_ui()
-        self.populate_combos()
+        self._setup_ui()
+        self._populate_combos()
         self.clear_form()
 
-    def setup_ui(self):
+    # ------------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------------
+
+    def _setup_ui(self):
         main_layout = QVBoxLayout(self)
 
-        form_layout = QFormLayout()
+        # Intestazione porta
+        form = QFormLayout()
         self.nome_edit = QLineEdit()
-
-        # --- MODIFICA 1: Aggiungiamo un campo 'Posizione' ---
-        self.posizione_completa_edit = QLineEdit()
-        self.posizione_completa_edit.setReadOnly(True) # Sola lettura
-        self.posizione_completa_edit.setStyleSheet("background-color: #f0f0f0;") # Grigio
-
-        self.locale_combo = QComboBox() # Per *modificare* il locale
-
+        self.locale_combo = QComboBox()
+        self.posizione_edit = QLineEdit()
+        self.posizione_edit.setReadOnly(True)
+        self.posizione_edit.setStyleSheet("background-color: #f0f0f0;")
         self.note_edit = QTextEdit()
-        self.note_edit.setMaximumHeight(100)
+        self.note_edit.setMaximumHeight(60)
 
-        form_layout.addRow("Nome Porta:", self.nome_edit)
-        form_layout.addRow("Assegna a Locale:", self.locale_combo) # Questo serve per l'assegnazione
-        form_layout.addRow("Posizione Completa:", self.posizione_completa_edit) # Questo per la visualizzazione
-
-        main_layout.addLayout(form_layout)
+        form.addRow("Nome Porta:", self.nome_edit)
+        form.addRow("Locale:", self.locale_combo)
+        form.addRow("Posizione:", self.posizione_edit)
+        main_layout.addLayout(form)
         main_layout.addWidget(QLabel("Note:"))
         main_layout.addWidget(self.note_edit)
 
-        # ... (Il resto di setup_ui con QSplitter e QListWidget rimane identico) ...
-        list_splitter = QSplitter(Qt.Vertical)
-
-        self.dispositivi_list = QListWidget()
-        self.connessioni_list = QListWidget()
-
-        dispositivi_widget = QWidget()
-        dis_layout = QVBoxLayout(dispositivi_widget); dis_layout.setContentsMargins(0,0,0,0)
-        dis_layout.addWidget(QLabel("Dispositivi installati sulla porta:"))
-        dis_layout.addWidget(self.dispositivi_list)
-
-        connessioni_widget = QWidget()
-        conn_layout = QVBoxLayout(connessioni_widget); conn_layout.setContentsMargins(0,0,0,0)
-        conn_layout.addWidget(QLabel("Interconnessioni (via dispositivi):"))
-        conn_layout.addWidget(self.connessioni_list)
-
-        list_splitter.addWidget(dispositivi_widget)
-        list_splitter.addWidget(connessioni_widget)
-        main_layout.addWidget(list_splitter)
-
-        self.save_button = QPushButton("Salva Modifiche")
-        self.save_button.clicked.connect(self.save_data)
+        self.save_button = QPushButton("Salva Modifiche Porta")
+        self.save_button.clicked.connect(self._save_porta)
         main_layout.addWidget(self.save_button)
 
-        # Colleghiamo il cambio del combo box all'aggiornamento della posizione
-        self.locale_combo.currentIndexChanged.connect(self.update_posizione_completa)
+        # Splitter verticale: dispositivi | interconnessioni
+        splitter = QSplitter(Qt.Vertical)
 
+        # --- Sezione Dispositivi ---
+        dev_widget = QWidget()
+        dev_layout = QVBoxLayout(dev_widget)
+        dev_layout.setContentsMargins(0, 0, 0, 0)
+        dev_layout.addWidget(QLabel("Dispositivi installati sulla porta:"))
 
-    def populate_combos(self):
-        # ... (Questa funzione rimane identica) ...
+        self.dev_table = QTableWidget()
+        self.dev_table.setColumnCount(len(self.COLS_DEV))
+        self.dev_table.setHorizontalHeaderLabels(self.COLS_DEV)
+        self.dev_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.dev_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.dev_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.dev_table.verticalHeader().setVisible(False)
+        self.dev_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.dev_table.horizontalHeader().setStretchLastSection(True)
+        dev_layout.addWidget(self.dev_table)
+
+        btn_row = QHBoxLayout()
+        self.btn_aggiungi = QPushButton("+ Aggiungi")
+        self.btn_modifica = QPushButton("Modifica")
+        self.btn_rimuovi  = QPushButton("Rimuovi")
+        self.btn_aggiungi.clicked.connect(self._aggiungi_dispositivo)
+        self.btn_modifica.clicked.connect(self._modifica_dispositivo)
+        self.btn_rimuovi.clicked.connect(self._rimuovi_dispositivo)
+        btn_row.addWidget(self.btn_aggiungi)
+        btn_row.addWidget(self.btn_modifica)
+        btn_row.addWidget(self.btn_rimuovi)
+        btn_row.addStretch()
+        dev_layout.addLayout(btn_row)
+
+        # Legenda colori garanzia
+        legenda = QLabel(
+            "  Garanzia:  "
+            "<span style='background:#ffaaaa;padding:1px 6px'>Scaduta</span>  "
+            "<span style='background:#ffdc82;padding:1px 6px'>In scadenza (&lt;90 gg)</span>"
+        )
+        legenda.setTextFormat(Qt.RichText)
+        dev_layout.addWidget(legenda)
+
+        # --- Sezione Interconnessioni ---
+        conn_widget = QWidget()
+        conn_layout = QVBoxLayout(conn_widget)
+        conn_layout.setContentsMargins(0, 0, 0, 0)
+        conn_layout.addWidget(QLabel("Interconnessioni (via dispositivi):"))
+        self.connessioni_list = QListWidget()
+        conn_layout.addWidget(self.connessioni_list)
+
+        splitter.addWidget(dev_widget)
+        splitter.addWidget(conn_widget)
+        splitter.setSizes([300, 120])
+        main_layout.addWidget(splitter)
+
+        self.locale_combo.currentIndexChanged.connect(self._update_posizione)
+
+    # ------------------------------------------------------------------
+    # Caricamento dati
+    # ------------------------------------------------------------------
+
+    def _populate_combos(self):
+        self.locale_combo.blockSignals(True)
         self.locale_combo.clear()
-        self.locale_combo.addItem("Nessuno", None)
-
+        self.locale_combo.addItem("— Nessuno —", None)
         query = QSqlQuery(self.db)
         if query.exec("SELECT locale_id, nome_locale FROM Locali ORDER BY nome_locale"):
             while query.next():
                 self.locale_combo.addItem(query.value(1), query.value(0))
-        else:
-            self.show_db_error(query.lastError())
+        self.locale_combo.blockSignals(False)
 
     def clear_form(self):
-        # ... (Dobbiamo aggiungere il nuovo campo) ...
         self.current_porta_id = None
         self.nome_edit.clear()
         self.note_edit.clear()
+        self.locale_combo.blockSignals(True)
         self.locale_combo.setCurrentIndex(0)
-        self.posizione_completa_edit.clear() # Aggiunto
-        self.dispositivi_list.clear()
+        self.locale_combo.blockSignals(False)
+        self.posizione_edit.clear()
+        self.dev_table.setRowCount(0)
         self.connessioni_list.clear()
         self.setEnabled(False)
 
@@ -107,96 +150,198 @@ class PortaDetailWidget(QWidget):
         self.clear_form()
         self.current_porta_id = porta_id
 
-        query_porta = QSqlQuery(self.db)
-        query_porta.prepare("SELECT nome_porta, locale_id, note FROM Porte WHERE porta_id = ?")
-        query_porta.addBindValue(porta_id)
-
-        if query_porta.exec() and query_porta.next():
-            self.nome_edit.setText(query_porta.value(0))
-            locale_id = query_porta.value(1)
-            self.note_edit.setPlainText(query_porta.value(2))
-
-            # Imposta il valore nel ComboBox (questo triggera l'aggiornamento della posizione)
-            idx = self.locale_combo.findData(locale_id)
-            if idx != -1:
-                self.locale_combo.setCurrentIndex(idx)
-            else:
-                self.locale_combo.setCurrentIndex(0) # "Nessuno"
-        else:
-            self.show_db_error(query_porta.lastError()); return
-
-        # ... (Le query per Dispositivi e Interconnessioni rimangono identiche) ...
-        # Query 2: Dispositivi sulla porta
-        query_dev = QSqlQuery(self.db)
-        query_dev.prepare("""...""") # Identica
-        query_dev.addBindValue(porta_id)
-        if query_dev.exec():
-             while query_dev.next():
-                testo = f"[{query_dev.value(1)}] {query_dev.value(0)} (SN: {query_dev.value(2)})"
-                self.dispositivi_list.addItem(testo)
-
-        # Query 3: Interconnessioni
-        query_conn = QSqlQuery(self.db)
-        query_conn.prepare("""...""") # Identica
-        query_conn.addBindValue(porta_id)
-        if query_conn.exec():
-            while query_conn.next():
-                testo = f"{query_conn.value(0)} <- {query_conn.value(1)} (su {query_conn.value(2)})"
-                self.connessioni_list.addItem(testo)
-
-        self.setEnabled(True)
-
-    # --- MODIFICA 2: Nuova funzione per aggiornare la posizione ---
-    def update_posizione_completa(self):
-        """
-        Chiamato quando il combo box 'locale_combo' cambia.
-        Esegue una query JOIN per trovare il percorso completo.
-        """
-        self.posizione_completa_edit.clear()
-        current_locale_id = self.locale_combo.currentData() # Prende l'ID
-
-        if current_locale_id is None:
+        q = QSqlQuery(self.db)
+        q.prepare("SELECT nome_porta, locale_id, note FROM Porte WHERE porta_id = ?")
+        q.addBindValue(porta_id)
+        if not (q.exec() and q.next()):
+            self._db_error(q.lastError())
             return
 
-        query = QSqlQuery(self.db)
-        query.prepare("""
+        self.nome_edit.setText(q.value(0) or "")
+        self.note_edit.setPlainText(q.value(2) or "")
+
+        locale_id = q.value(1)
+        self.locale_combo.blockSignals(True)
+        idx = self.locale_combo.findData(locale_id)
+        self.locale_combo.setCurrentIndex(idx if idx != -1 else 0)
+        self.locale_combo.blockSignals(False)
+        self._update_posizione()
+
+        self._load_dispositivi(porta_id)
+        self._load_interconnessioni(porta_id)
+        self.setEnabled(True)
+
+    def _load_dispositivi(self, porta_id: int):
+        self.dev_table.setRowCount(0)
+        q = QSqlQuery(self.db)
+        q.prepare("""
+            SELECT d.dispositivo_id, t.nome_tipo, d.modello, d.matricola,
+                   d.data_installazione, d.garanzia_mesi, d.stato, d.fornitore
+            FROM Inventario_Dispositivi d
+            JOIN Tipi_Dispositivi t ON d.tipo_id = t.tipo_id
+            WHERE d.porta_id = ?
+            ORDER BY t.nome_tipo, d.modello
+        """)
+        q.addBindValue(porta_id)
+        if not q.exec():
+            self._db_error(q.lastError())
+            return
+
+        today = QDate.currentDate()
+        while q.next():
+            dispositivo_id  = q.value(0)
+            tipo            = q.value(1) or ""
+            modello         = q.value(2) or ""
+            matricola       = q.value(3) or ""
+            data_inst_str   = q.value(4) or ""
+            garanzia_mesi   = q.value(5)
+            stato           = q.value(6) or ""
+            fornitore       = q.value(7) or ""
+
+            # Data installazione formattata
+            if data_inst_str:
+                data_inst = QDate.fromString(data_inst_str, "yyyy-MM-dd")
+                data_inst_fmt = data_inst.toString("dd/MM/yyyy")
+            else:
+                data_inst = None
+                data_inst_fmt = ""
+
+            # Calcolo scadenza e colore
+            scadenza_fmt = "—"
+            row_color = None
+            if data_inst and garanzia_mesi:
+                scadenza = data_inst.addMonths(int(garanzia_mesi))
+                scadenza_fmt = scadenza.toString("dd/MM/yyyy")
+                days_left = today.daysTo(scadenza)
+                if days_left < 0:
+                    row_color = COLOR_SCADUTA
+                elif days_left <= SOGLIA_SCADENZA_GIORNI:
+                    row_color = COLOR_IN_SCADENZA
+
+            garanzia_txt = f"{int(garanzia_mesi)} mesi" if garanzia_mesi else "—"
+
+            values = [tipo, modello, matricola, data_inst_fmt,
+                      garanzia_txt, scadenza_fmt, stato, fornitore]
+
+            row = self.dev_table.rowCount()
+            self.dev_table.insertRow(row)
+            for col, text in enumerate(values):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+                if col == 0:
+                    item.setData(Qt.UserRole, dispositivo_id)
+                if row_color:
+                    item.setBackground(row_color)
+                self.dev_table.setItem(row, col, item)
+
+    def _load_interconnessioni(self, porta_id: int):
+        self.connessioni_list.clear()
+        q = QSqlQuery(self.db)
+        q.prepare("""
+            SELECT se.nome_sistema, ic.descrizione_connessione, d.modello, ic.tipo_segnale
+            FROM Interconnessioni ic
+            JOIN SistemiEsterni se ON ic.sistema_id = se.sistema_id
+            JOIN Inventario_Dispositivi d ON ic.dispositivo_id = d.dispositivo_id
+            WHERE d.porta_id = ?
+            ORDER BY se.nome_sistema
+        """)
+        q.addBindValue(porta_id)
+        if not q.exec():
+            self._db_error(q.lastError())
+            return
+        while q.next():
+            segnale = f" [{q.value(3)}]" if q.value(3) else ""
+            self.connessioni_list.addItem(
+                f"{q.value(0)}{segnale}  ←  {q.value(1)}  (su {q.value(2)})"
+            )
+
+    def _update_posizione(self):
+        self.posizione_edit.clear()
+        locale_id = self.locale_combo.currentData()
+        if locale_id is None:
+            return
+        q = QSqlQuery(self.db)
+        q.prepare("""
             SELECT e.nome_edificio, p.nome_piano, l.nome_locale
             FROM Locali l
             JOIN Piani p ON l.piano_id = p.piano_id
             JOIN Edifici e ON p.edificio_id = e.edificio_id
             WHERE l.locale_id = ?
         """)
-        query.addBindValue(current_locale_id)
-
-        if query.exec() and query.next():
-            percorso = f"{query.value(0)}  >  {query.value(1)}  >  {query.value(2)}"
-            self.posizione_completa_edit.setText(percorso)
-        elif query.lastError().isValid():
-            self.show_db_error(query.lastError())
+        q.addBindValue(locale_id)
+        if q.exec() and q.next():
+            self.posizione_edit.setText(
+                f"{q.value(0)}  >  {q.value(1)}  >  {q.value(2)}"
+            )
         else:
-            # Potrebbe essere un locale non associato a un piano
-            self.posizione_completa_edit.setText(self.locale_combo.currentText())
+            self.posizione_edit.setText(self.locale_combo.currentText())
 
+    # ------------------------------------------------------------------
+    # Azioni dispositivi
+    # ------------------------------------------------------------------
 
-    def save_data(self):
-        # ... (Questa funzione rimane identica) ...
-        if self.current_porta_id is None: return
+    def _aggiungi_dispositivo(self):
+        if self.current_porta_id is None:
+            return
+        dlg = DispositivoDialog(self.db, self.current_porta_id, parent=self)
+        if dlg.exec():
+            self._load_dispositivi(self.current_porta_id)
+            self._load_interconnessioni(self.current_porta_id)
 
-        query = QSqlQuery(self.db)
-        query.prepare("""
-            UPDATE Porte SET nome_porta = ?, locale_id = ?, note = ?
-            WHERE porta_id = ?
-        """)
-        query.addBindValue(self.nome_edit.text())
-        query.addBindValue(self.locale_combo.currentData()) # Salva l'ID del locale
-        query.addBindValue(self.note_edit.toPlainText())
-        query.addBindValue(self.current_porta_id)
+    def _modifica_dispositivo(self):
+        row = self.dev_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Nessuna selezione", "Seleziona prima un dispositivo.")
+            return
+        dev_id = self.dev_table.item(row, 0).data(Qt.UserRole)
+        dlg = DispositivoDialog(self.db, self.current_porta_id, dev_id, parent=self)
+        if dlg.exec():
+            self._load_dispositivi(self.current_porta_id)
 
-        if query.exec():
-            QMessageBox.information(self, "Successo", "Dati porta salvati.")
+    def _rimuovi_dispositivo(self):
+        row = self.dev_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Nessuna selezione", "Seleziona prima un dispositivo.")
+            return
+        dev_id  = self.dev_table.item(row, 0).data(Qt.UserRole)
+        modello = self.dev_table.item(row, 1).text()
+        reply = QMessageBox.question(
+            self, "Conferma rimozione",
+            f"Rimuovere '{modello}'?\nAnche le interconnessioni collegate saranno eliminate.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+        q = QSqlQuery(self.db)
+        q.prepare("DELETE FROM Inventario_Dispositivi WHERE dispositivo_id = ?")
+        q.addBindValue(dev_id)
+        if q.exec():
+            self._load_dispositivi(self.current_porta_id)
+            self._load_interconnessioni(self.current_porta_id)
         else:
-            self.show_db_error(query.lastError())
+            self._db_error(q.lastError())
 
-    def show_db_error(self, err: QSqlError):
-        # ... (Questa funzione rimane identica) ...
-        QMessageBox.critical(self, "Errore Query", f"Errore database: {err.text()}")
+    # ------------------------------------------------------------------
+    # Salvataggio porta
+    # ------------------------------------------------------------------
+
+    def _save_porta(self):
+        if self.current_porta_id is None:
+            return
+        q = QSqlQuery(self.db)
+        q.prepare("UPDATE Porte SET nome_porta=?, locale_id=?, note=? WHERE porta_id=?")
+        q.addBindValue(self.nome_edit.text().strip())
+        q.addBindValue(self.locale_combo.currentData())
+        q.addBindValue(self.note_edit.toPlainText().strip() or None)
+        q.addBindValue(self.current_porta_id)
+        if q.exec():
+            QMessageBox.information(self, "Salvato", "Dati porta salvati.")
+        else:
+            self._db_error(q.lastError())
+
+    # ------------------------------------------------------------------
+    # Utility
+    # ------------------------------------------------------------------
+
+    def _db_error(self, err: QSqlError):
+        QMessageBox.critical(self, "Errore Database", err.text())

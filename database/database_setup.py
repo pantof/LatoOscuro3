@@ -1,21 +1,15 @@
 # This Python file uses the following encoding: utf-8
 
-# if __name__ == "__main__":
-#     pass
 import sqlite3
 import os
 from PySide6.QtSql import QSqlDatabase, QSqlError
 from PySide6.QtWidgets import QMessageBox
 
-NOME_DATABASE = "inventario_hardware_v3.db" # Versione 3
+NOME_DATABASE = "inventario_hardware_v4.db"
 
-def crea_database_v3():
-    """
-    Crea lo schema del database v3, aggiungendo Edifici e Piani
-    e normalizzando la tabella Locali.
-    """
+def crea_database_v4():
     if os.path.exists(NOME_DATABASE):
-        return  # Esiste già
+        return
 
     print(f"Creo il file database '{NOME_DATABASE}'...")
     conn = None
@@ -25,8 +19,6 @@ def crea_database_v3():
         cursor.execute("PRAGMA foreign_keys = ON;")
 
         schema_sql = """
-
-        -- NUOVA TABELLA: Edifici
         CREATE TABLE Edifici (
             edificio_id INTEGER PRIMARY KEY,
             nome_edificio TEXT NOT NULL UNIQUE,
@@ -34,74 +26,85 @@ def crea_database_v3():
             note TEXT
         );
 
-        -- NUOVA TABELLA: Piani (collegata a Edifici)
         CREATE TABLE Piani (
             piano_id INTEGER PRIMARY KEY,
-            nome_piano TEXT NOT NULL, -- Es. "Piano 1", "PT", "Livello -1"
+            nome_piano TEXT NOT NULL,
             edificio_id INTEGER NOT NULL,
-            FOREIGN KEY (edificio_id) REFERENCES Edifici (edificio_id)
-                ON DELETE CASCADE, -- Se elimino un edificio, elimino i suoi piani
-            UNIQUE(nome_piano, edificio_id) -- Evita "Piano 1" duplicati nello stesso edificio
+            FOREIGN KEY (edificio_id) REFERENCES Edifici (edificio_id) ON DELETE CASCADE,
+            UNIQUE(nome_piano, edificio_id)
         );
 
-        -- TABELLA MODIFICATA: Locali
         CREATE TABLE Locali (
             locale_id INTEGER PRIMARY KEY,
             nome_locale TEXT NOT NULL UNIQUE,
             descrizione TEXT,
-            -- I campi 'edificio' e 'piano' (testo) sono stati rimossi
-            -- Sostituiti da un link alla tabella Piani
             piano_id INTEGER,
-            FOREIGN KEY (piano_id) REFERENCES Piani (piano_id)
-                ON DELETE SET NULL -- Se elimino un piano, il locale resta "flottante"
+            FOREIGN KEY (piano_id) REFERENCES Piani (piano_id) ON DELETE SET NULL
         );
 
-        -- Il resto dello schema rimane invariato
         CREATE TABLE Porte (
-            porta_id INTEGER PRIMARY KEY, nome_porta TEXT NOT NULL UNIQUE,
-            locale_id INTEGER, note TEXT,
+            porta_id INTEGER PRIMARY KEY,
+            nome_porta TEXT NOT NULL UNIQUE,
+            locale_id INTEGER,
+            note TEXT,
             FOREIGN KEY (locale_id) REFERENCES Locali (locale_id)
         );
+
         CREATE TABLE Tipi_Dispositivi (
-            tipo_id INTEGER PRIMARY KEY, nome_tipo TEXT NOT NULL UNIQUE,
+            tipo_id INTEGER PRIMARY KEY,
+            nome_tipo TEXT NOT NULL UNIQUE,
             descrizione TEXT
         );
+
         CREATE TABLE Inventario_Dispositivi (
-            dispositivo_id INTEGER PRIMARY KEY, modello TEXT NOT NULL,
-            matricola TEXT UNIQUE, descrizione TEXT, data_installazione DATE,
-            stato TEXT DEFAULT 'Operativo', tipo_id INTEGER NOT NULL,
-            parent_dispositivo_id INTEGER, locale_id INTEGER, porta_id INTEGER,
-            FOREIGN KEY (tipo_id) REFERENCES Tipi_Dispositivi (tipo_id),
-            FOREIGN KEY (parent_dispositivo_id) REFERENCES Inventario_Dispositivi (dispositivo_id),
-            FOREIGN KEY (locale_id) REFERENCES Locali (locale_id),
-            FOREIGN KEY (porta_id) REFERENCES Porte (porta_id)
+            dispositivo_id   INTEGER PRIMARY KEY,
+            modello          TEXT NOT NULL,
+            matricola        TEXT UNIQUE,
+            descrizione      TEXT,
+            fornitore        TEXT,
+            data_installazione DATE,
+            garanzia_mesi    INTEGER,
+            stato            TEXT DEFAULT 'Operativo',
+            tipo_id          INTEGER NOT NULL,
+            parent_dispositivo_id INTEGER,
+            locale_id        INTEGER,
+            porta_id         INTEGER,
+            FOREIGN KEY (tipo_id)               REFERENCES Tipi_Dispositivi (tipo_id),
+            FOREIGN KEY (parent_dispositivo_id)  REFERENCES Inventario_Dispositivi (dispositivo_id),
+            FOREIGN KEY (locale_id)             REFERENCES Locali (locale_id),
+            FOREIGN KEY (porta_id)              REFERENCES Porte (porta_id) ON DELETE CASCADE
         );
+
         CREATE TABLE SistemiEsterni (
-            sistema_id INTEGER PRIMARY KEY, nome_sistema TEXT NOT NULL UNIQUE,
-            tipo_sistema TEXT, referente_tecnico TEXT
+            sistema_id       INTEGER PRIMARY KEY,
+            nome_sistema     TEXT NOT NULL UNIQUE,
+            tipo_sistema     TEXT,
+            referente_tecnico TEXT
         );
+
         CREATE TABLE Interconnessioni (
-            interconnessione_id INTEGER PRIMARY KEY,
-            dispositivo_id INTEGER NOT NULL, sistema_id INTEGER NOT NULL,
-            descrizione_connessione TEXT NOT NULL, tipo_segnale TEXT, note TEXT,
-            FOREIGN KEY (dispositivo_id) REFERENCES Inventario_Dispositivi (dispositivo_id),
-            FOREIGN KEY (sistema_id) REFERENCES SistemiEsterni (sistema_id)
+            interconnessione_id  INTEGER PRIMARY KEY,
+            dispositivo_id       INTEGER NOT NULL,
+            sistema_id           INTEGER NOT NULL,
+            descrizione_connessione TEXT NOT NULL,
+            tipo_segnale         TEXT,
+            note                 TEXT,
+            FOREIGN KEY (dispositivo_id) REFERENCES Inventario_Dispositivi (dispositivo_id) ON DELETE CASCADE,
+            FOREIGN KEY (sistema_id)     REFERENCES SistemiEsterni (sistema_id)
         );
         """
         cursor.executescript(schema_sql)
         conn.commit()
-        print("Schema database v3 creato.")
+        print("Schema database v4 creato.")
     except sqlite3.Error as e:
         print(f"Errore creazione database: {e}")
     finally:
         if conn:
             conn.close()
 
-def popola_dati_esempio_v3():
-    """
-    Popola il database v3 con dati di esempio SE è vuoto.
-    """
-    print("Controllo popolamento dati v3...")
+
+def popola_dati_esempio_v4():
+    print("Controllo popolamento dati v4...")
     try:
         conn = sqlite3.connect(NOME_DATABASE)
         cursor = conn.cursor()
@@ -113,78 +116,76 @@ def popola_dati_esempio_v3():
             conn.close()
             return
 
-        print("Database vuoto, inserisco dati di esempio v3...")
+        print("Database vuoto, inserisco dati di esempio v4...")
 
-        # 1. Popola le nuove tabelle
+        cursor.execute("INSERT INTO Edifici VALUES (1, 'Edificio A', 'Via Roma 1, Milano', NULL)")
+        cursor.execute("INSERT INTO Edifici VALUES (2, 'Edificio B - Magazzino', 'Via Po 10, Milano', NULL)")
+
+        cursor.execute("INSERT INTO Piani VALUES (1, 'Piano 1', 1)")
+        cursor.execute("INSERT INTO Piani VALUES (2, 'Piano Terra', 1)")
+        cursor.execute("INSERT INTO Piani VALUES (3, 'Piano Terra', 2)")
+
+        cursor.execute("INSERT INTO Locali VALUES (1, 'Locale CED', 'Rack Principale Controllo Accessi', 1)")
+        cursor.execute("INSERT INTO Locali VALUES (2, 'Reception', 'Guardia all ingresso', 2)")
+
+        cursor.execute("INSERT INTO Tipi_Dispositivi (nome_tipo) VALUES ('Centralina')")
+        cursor.execute("INSERT INTO Tipi_Dispositivi (nome_tipo) VALUES ('Lettore')")
+        cursor.execute("INSERT INTO Tipi_Dispositivi (nome_tipo) VALUES ('Serratura')")
+        cursor.execute("INSERT INTO Tipi_Dispositivi (nome_tipo) VALUES ('Modulo I/O')")
+
+        cursor.execute("INSERT INTO Porte VALUES (1, 'Ingresso Principale', 2, NULL)")
+        cursor.execute("INSERT INTO Porte VALUES (2, 'Porta Sala Server', 1, NULL)")
+
+        cursor.execute("INSERT INTO SistemiEsterni (nome_sistema, tipo_sistema) VALUES ('Impianto Antincendio', 'Sicurezza')")
+
+        # Centralina nel CED — garanzia 36 mesi, installata 2024-01-15 → scade 2027-01-15 (valida)
         cursor.execute("""
-            INSERT INTO Edifici (edificio_id, nome_edificio, indirizzo)
-            VALUES (1, 'Edificio A', 'Via Roma 1, Milano');
+            INSERT INTO Inventario_Dispositivi
+            (modello, matricola, fornitore, data_installazione, garanzia_mesi, stato, tipo_id, locale_id)
+            VALUES ('Axis A1001', 'AX-001-2024', 'Axis Communications', '2024-01-15', 36, 'Operativo', 1, 1)
         """)
+
+        # Lettore Ingresso Principale — garanzia 24 mesi, installato 2022-03-10 → scaduta 2024-03-10
         cursor.execute("""
-            INSERT INTO Edifici (edificio_id, nome_edificio, indirizzo)
-            VALUES (2, 'Edificio B - Magazzino', 'Via Po 10, Milano');
+            INSERT INTO Inventario_Dispositivi
+            (modello, matricola, fornitore, data_installazione, garanzia_mesi, stato, tipo_id, parent_dispositivo_id, porta_id)
+            VALUES ('HID R10', 'HID-R10-0042', 'HID Global', '2022-03-10', 24, 'Operativo', 2, 1, 1)
         """)
 
-        cursor.execute("INSERT INTO Piani (piano_id, nome_piano, edificio_id) VALUES (1, 'Piano 1', 1);")
-        cursor.execute("INSERT INTO Piani (piano_id, nome_piano, edificio_id) VALUES (2, 'Piano Terra', 1);")
-        cursor.execute("INSERT INTO Piani (piano_id, nome_piano, edificio_id) VALUES (3, 'Piano Terra', 2);")
-
-        # 2. Modifica l'inserimento dei Locali
-        # Ora 'Locale CED' è collegato al 'Piano 1' (piano_id=1)
+        # Modulo I/O Ingresso Principale — nessuna garanzia registrata
         cursor.execute("""
-            INSERT INTO Locali (locale_id, nome_locale, descrizione, piano_id)
-            VALUES (1, 'Locale CED', 'Rack Principale Controllo Accessi', 1);
+            INSERT INTO Inventario_Dispositivi
+            (modello, matricola, descrizione, fornitore, data_installazione, garanzia_mesi, stato, tipo_id, parent_dispositivo_id, porta_id)
+            VALUES ('Modulo I/O Generic', 'IO-2022-003', 'Scatola sopra porta', 'Generico', '2022-03-10', NULL, 'Operativo', 4, 1, 1)
         """)
-        # Aggiungiamo un altro locale
+
+        # Lettore Sala Server — garanzia 24 mesi, installato 2026-03-01 → scade 2028-03-01 (valida)
         cursor.execute("""
-            INSERT INTO Locali (locale_id, nome_locale, descrizione, piano_id)
-            VALUES (2, 'Reception', 'Guardia all ingresso', 2);
+            INSERT INTO Inventario_Dispositivi
+            (modello, matricola, fornitore, data_installazione, garanzia_mesi, stato, tipo_id, parent_dispositivo_id, porta_id)
+            VALUES ('BioLite N2', 'BIO-N2-2026-01', 'Suprema', '2026-03-01', 24, 'Operativo', 2, 1, 2)
         """)
 
-        # 3. Il resto (Porte, Tipi, etc.) rimane quasi uguale
-        cursor.execute("INSERT INTO Tipi_Dispositivi (nome_tipo) VALUES ('Centralina'), ('Lettore'), ('Serratura'), ('Scatola Interfaccia');")
-
-        # La porta "Ingresso Principale" è nel locale "Reception" (locale_id=2)
-        cursor.execute("INSERT INTO Porte (porta_id, nome_porta, locale_id) VALUES (1, 'Ingresso Principale', 2);")
-        # La porta "Sala Server" è nel locale "Locale CED" (locale_id=1)
-        cursor.execute("INSERT INTO Porte (porta_id, nome_porta, locale_id) VALUES (2, 'Porta Sala Server', 1);")
-
-        cursor.execute("INSERT INTO SistemiEsterni (nome_sistema, tipo_sistema) VALUES ('Impianto Antincendio', 'Sicurezza');")
-
-        # La Centralina (dispositivo_id=1) è nel Locale CED (locale_id=1)
-        cursor.execute("INSERT INTO Inventario_Dispositivi (modello, tipo_id, locale_id) VALUES ('Axis A1001', 1, 1);")
-
-        # Dispositivi su 'Ingresso Principale' (porta_id=1), collegati alla Centralina (parent=1)
-        cursor.execute("INSERT INTO Inventario_Dispositivi (modello, tipo_id, parent_dispositivo_id, porta_id) VALUES ('HID R10', 2, 1, 1);")
-        cursor.execute("INSERT INTO Inventario_Dispositivi (modello, tipo_id, parent_dispositivo_id, porta_id, descrizione) VALUES ('Modulo I/O', 4, 1, 1, 'Scatola sopra porta');") # id=3
-
-        # Dispositivi su 'Porta Sala Server' (porta_id=2), collegati alla Centralina (parent=1)
-        cursor.execute("INSERT INTO Inventario_Dispositivi (modello, tipo_id, parent_dispositivo_id, porta_id) VALUES ('BioLite N2', 2, 1, 2);")
-
-        cursor.execute("INSERT INTO Interconnessioni (dispositivo_id, sistema_id, descrizione_connessione) VALUES (3, 1, 'Input Sblocco Emergenza');")
+        cursor.execute("""
+            INSERT INTO Interconnessioni (dispositivo_id, sistema_id, descrizione_connessione, tipo_segnale)
+            VALUES (3, 1, 'Input Sblocco Emergenza', 'Contatto secco NO')
+        """)
 
         conn.commit()
-        print("Dati di esempio v3 inseriti.")
+        print("Dati di esempio v4 inseriti.")
     except sqlite3.Error as e:
         print(f"Errore popolamento: {e}")
     finally:
         if conn:
             conn.close()
 
-def setup_database():
-    """Funzione unica per creare e popolare il DB."""
-    # Aggiorniamo il nome del file DB
-    global NOME_DATABASE
-    NOME_DATABASE = "inventario_hardware_v3.db"
 
-    crea_database_v3()
-    popola_dati_esempio_v3()
+def setup_database():
+    crea_database_v4()
+    popola_dati_esempio_v4()
+
 
 def connect_db() -> QSqlDatabase | None:
-    """
-    Crea la connessione QtSql al database v3 e la restituisce.
-    """
-    # Controlla che il setup sia stato eseguito
     if not os.path.exists(NOME_DATABASE):
         setup_database()
 
@@ -196,9 +197,9 @@ def connect_db() -> QSqlDatabase | None:
             f"Impossibile connettersi al database:\n{db.lastError().text()}")
         return None
 
-    print("Connessione QtSql al database v3 stabilita.")
+    print("Connessione QtSql al database v4 stabilita.")
     query = db.exec("PRAGMA foreign_keys = ON;")
     if not query.isActive():
-         print(f"Errore abilitazione Foreign Keys: {query.lastError().text()}")
+        print(f"Errore abilitazione Foreign Keys: {query.lastError().text()}")
 
     return db
