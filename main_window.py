@@ -85,9 +85,14 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(nav_panel)
         main_layout.addWidget(self.main_stack, stretch=1)
 
-        # Connessioni
+        # Connessioni albero
         self.asset_tree.item_selected.connect(self._on_asset_selected)
         self.asset_tree.tree_changed.connect(self._on_tree_changed)
+
+        # Connessioni content_changed dai widget di dettaglio → aggiorna albero
+        self.locale_widget.content_changed.connect(self.asset_tree.load_location_tree)
+        self.piano_widget.content_changed.connect(self.asset_tree.load_location_tree)
+        self.edificio_widget.content_changed.connect(self.asset_tree.load_location_tree)
 
         self.main_stack.setCurrentIndex(0)
 

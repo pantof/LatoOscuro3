@@ -1,16 +1,19 @@
 # This Python file uses the following encoding: utf-8
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QLineEdit, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QLabel,
     QTableWidget, QTableWidgetItem, QPushButton,
     QMessageBox, QHeaderView, QAbstractItemView
 )
 from PySide6.QtSql import QSqlDatabase, QSqlQuery
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
+
+from widget.tree_dialogs import LocaleDialog
 
 
 class PianoDetailWidget(QWidget):
 
+    content_changed = Signal()   # emesso dopo aggiunta locale → aggiorna albero
     COLS_LOCALI = ["Locale", "Descrizione", "N. Porte"]
 
     def __init__(self, db: QSqlDatabase, parent=None):
@@ -36,7 +39,15 @@ class PianoDetailWidget(QWidget):
         self.save_btn.clicked.connect(self._save)
         layout.addWidget(self.save_btn)
 
-        layout.addWidget(QLabel("Locali:"))
+        # Intestazione lista locali con pulsante Aggiungi
+        locali_header = QHBoxLayout()
+        locali_header.addWidget(QLabel("Locali in questo piano:"))
+        locali_header.addStretch()
+        self.btn_aggiungi_locale = QPushButton("+ Aggiungi Locale")
+        self.btn_aggiungi_locale.clicked.connect(self._aggiungi_locale)
+        locali_header.addWidget(self.btn_aggiungi_locale)
+        layout.addLayout(locali_header)
+
         self.locali_table = QTableWidget()
         self.locali_table.setColumnCount(len(self.COLS_LOCALI))
         self.locali_table.setHorizontalHeaderLabels(self.COLS_LOCALI)
@@ -45,6 +56,8 @@ class PianoDetailWidget(QWidget):
         self.locali_table.verticalHeader().setVisible(False)
         self.locali_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         layout.addWidget(self.locali_table)
+
+    # ------------------------------------------------------------------
 
     def clear_form(self):
         self.current_piano_id = None
@@ -69,8 +82,13 @@ class PianoDetailWidget(QWidget):
         self.nome_edit.setText(q.value(0) or "")
         self.edificio_edit.setText(q.value(1) or "")
 
-        q2 = QSqlQuery(self.db)
-        q2.prepare("""
+        self._load_locali(piano_id)
+        self.setEnabled(True)
+
+    def _load_locali(self, piano_id: int):
+        self.locali_table.setRowCount(0)
+        q = QSqlQuery(self.db)
+        q.prepare("""
             SELECT l.nome_locale, COALESCE(l.descrizione, ''), COUNT(po.porta_id)
             FROM Locali l
             LEFT JOIN Porte po ON po.locale_id = l.locale_id
@@ -78,17 +96,23 @@ class PianoDetailWidget(QWidget):
             GROUP BY l.locale_id, l.nome_locale, l.descrizione
             ORDER BY l.nome_locale
         """)
-        q2.addBindValue(piano_id)
-        if q2.exec():
-            while q2.next():
+        q.addBindValue(piano_id)
+        if q.exec():
+            while q.next():
                 row = self.locali_table.rowCount()
                 self.locali_table.insertRow(row)
-                for col, val in enumerate([q2.value(0), q2.value(1), str(q2.value(2))]):
+                for col, val in enumerate([q.value(0), q.value(1), str(q.value(2))]):
                     item = QTableWidgetItem(val)
                     item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
                     self.locali_table.setItem(row, col, item)
 
-        self.setEnabled(True)
+    def _aggiungi_locale(self):
+        if self.current_piano_id is None:
+            return
+        dlg = LocaleDialog(self.db, piano_id=self.current_piano_id, parent=self)
+        if dlg.exec():
+            self._load_locali(self.current_piano_id)
+            self.content_changed.emit()
 
     def _save(self):
         if self.current_piano_id is None:
@@ -99,5 +123,6 @@ class PianoDetailWidget(QWidget):
         q.addBindValue(self.current_piano_id)
         if q.exec():
             QMessageBox.information(self, "Salvato", "Piano aggiornato.")
+            self.content_changed.emit()
         else:
             QMessageBox.critical(self, "Errore DB", q.lastError().text())
