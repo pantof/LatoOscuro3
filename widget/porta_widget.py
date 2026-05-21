@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QColor
 
 from widget.dispositivo_dialog import DispositivoDialog
+from widget.installazione_dialog import InstallazionDialog
 
 # Soglia (giorni) entro cui la garanzia è considerata "in scadenza"
 SOGLIA_SCADENZA_GIORNI = 90
@@ -22,7 +23,7 @@ COLOR_IN_SCADENZA = QColor(255, 220, 130) # giallo/arancio
 
 class PortaDetailWidget(QWidget):
 
-    COLS_DEV = ["Tipo", "Modello", "Matricola/SN", "Centralina", "Installato il", "Garanzia", "Scade il", "Stato", "Fornitore"]
+    COLS_DEV = ["Tipo", "Modello", "Matricola/SN", "Centralina", "Installato il", "Garanzia", "Scade il", "Stato", "Fornitore", ""]
 
     def __init__(self, db: QSqlDatabase, parent=None):
         super().__init__(parent)
@@ -84,12 +85,17 @@ class PortaDetailWidget(QWidget):
         dev_layout.addWidget(self.dev_table)
 
         btn_row = QHBoxLayout()
-        self.btn_aggiungi = QPushButton("+ Aggiungi")
+        self.btn_installa = QPushButton("📦  Installa da Catalogo")
+        self.btn_aggiungi = QPushButton("+ Aggiungi Manuale")
         self.btn_modifica = QPushButton("Modifica")
         self.btn_rimuovi  = QPushButton("Rimuovi")
+        self.btn_installa.setToolTip("Scegli un articolo dal catalogo materiali e installalo su questa porta")
+        self.btn_aggiungi.setToolTip("Aggiungi un dispositivo senza passare dal catalogo")
+        self.btn_installa.clicked.connect(self._installa_da_catalogo)
         self.btn_aggiungi.clicked.connect(self._aggiungi_dispositivo)
         self.btn_modifica.clicked.connect(self._modifica_dispositivo)
         self.btn_rimuovi.clicked.connect(self._rimuovi_dispositivo)
+        btn_row.addWidget(self.btn_installa)
         btn_row.addWidget(self.btn_aggiungi)
         btn_row.addWidget(self.btn_modifica)
         btn_row.addWidget(self.btn_rimuovi)
@@ -177,7 +183,8 @@ class PortaDetailWidget(QWidget):
         q.prepare("""
             SELECT d.dispositivo_id, t.nome_tipo, d.modello, d.matricola,
                    COALESCE(c.modello, '—') AS centralina,
-                   d.data_installazione, d.garanzia_mesi, d.stato, d.fornitore
+                   d.data_installazione, d.garanzia_mesi, d.stato, d.fornitore,
+                   CASE WHEN d.articolo_id IS NOT NULL THEN 1 ELSE 0 END AS da_catalogo
             FROM Inventario_Dispositivi d
             JOIN Tipi_Dispositivi t ON d.tipo_id = t.tipo_id
             LEFT JOIN Inventario_Dispositivi c ON d.parent_dispositivo_id = c.dispositivo_id
@@ -200,6 +207,7 @@ class PortaDetailWidget(QWidget):
             garanzia_mesi   = q.value(6)
             stato           = q.value(7) or ""
             fornitore       = q.value(8) or ""
+            da_catalogo     = bool(q.value(9))
 
             # Data installazione formattata
             if data_inst_str:
@@ -223,8 +231,9 @@ class PortaDetailWidget(QWidget):
 
             garanzia_txt = f"{int(garanzia_mesi)} mesi" if garanzia_mesi else "—"
 
+            badge = "📦 catalogo" if da_catalogo else "✏ manuale"
             values = [tipo, modello, matricola, centralina, data_inst_fmt,
-                      garanzia_txt, scadenza_fmt, stato, fornitore]
+                      garanzia_txt, scadenza_fmt, stato, fornitore, badge]
 
             row = self.dev_table.rowCount()
             self.dev_table.insertRow(row)
@@ -282,6 +291,15 @@ class PortaDetailWidget(QWidget):
     # ------------------------------------------------------------------
     # Azioni dispositivi
     # ------------------------------------------------------------------
+
+    def _installa_da_catalogo(self):
+        if self.current_porta_id is None:
+            return
+        nome_porta = self.nome_edit.text() or f"Porta {self.current_porta_id}"
+        dlg = InstallazionDialog(self.db, self.current_porta_id, nome_porta, parent=self)
+        if dlg.exec():
+            self._load_dispositivi(self.current_porta_id)
+            self._load_interconnessioni(self.current_porta_id)
 
     def _aggiungi_dispositivo(self):
         if self.current_porta_id is None:

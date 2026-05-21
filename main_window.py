@@ -10,6 +10,7 @@ from widget.locale_detail_widget  import LocaleDetailWidget
 from widget.piano_detail_widget   import PianoDetailWidget
 from widget.edificio_detail_widget import EdificioDetailWidget
 from widget.garanzie_widget       import GaranzieWidget
+from widget.catalogo_widget       import CatalogoWidget
 from widget.location_manager      import LocationManagerWidget
 
 
@@ -30,7 +31,11 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        self.act_garanzie = toolbar.addAction("Scadenzario Garanzie")
+        self.act_catalogo = toolbar.addAction("📦  Catalogo Materiali")
+        self.act_catalogo.setCheckable(True)
+        self.act_catalogo.triggered.connect(self._toggle_catalogo)
+
+        self.act_garanzie = toolbar.addAction("🔔  Scadenzario Garanzie")
         self.act_garanzie.setCheckable(True)
         self.act_garanzie.triggered.connect(self._toggle_garanzie)
 
@@ -82,6 +87,10 @@ class MainWindow(QMainWindow):
         self.garanzie_widget = GaranzieWidget(self.db)
         self.main_stack.addWidget(self.garanzie_widget)      # 5
 
+        # indice 6 — catalogo materiali
+        self.catalogo_widget = CatalogoWidget(self.db)
+        self.main_stack.addWidget(self.catalogo_widget)      # 6
+
         main_layout.addWidget(nav_panel)
         main_layout.addWidget(self.main_stack, stretch=1)
 
@@ -102,6 +111,7 @@ class MainWindow(QMainWindow):
 
     def _on_asset_selected(self, item_type: str, item_id: int):
         self.act_garanzie.setChecked(False)
+        self.act_catalogo.setChecked(False)
         if item_type == "porta":
             self.main_stack.setCurrentWidget(self.porta_widget)
             self.porta_widget.load_porta_data(item_id)
@@ -117,7 +127,16 @@ class MainWindow(QMainWindow):
         else:
             self.main_stack.setCurrentIndex(0)
 
+    def _toggle_catalogo(self, checked: bool):
+        self.act_garanzie.setChecked(False)
+        if checked:
+            self.main_stack.setCurrentWidget(self.catalogo_widget)
+            self.catalogo_widget.load_data()
+        else:
+            self.main_stack.setCurrentIndex(0)
+
     def _toggle_garanzie(self, checked: bool):
+        self.act_catalogo.setChecked(False)
         if checked:
             self.main_stack.setCurrentWidget(self.garanzie_widget)
             self.garanzie_widget.load_data()
