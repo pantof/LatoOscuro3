@@ -54,6 +54,8 @@ class DispositivoDialog(QDialog):
         self.stato_combo = QComboBox()
         self.stato_combo.addItems(self.STATI)
 
+        self.centralina_combo = QComboBox()
+
         self.descrizione_edit = QTextEdit()
         self.descrizione_edit.setMaximumHeight(70)
         self.descrizione_edit.setPlaceholderText("Note aggiuntive...")
@@ -65,6 +67,7 @@ class DispositivoDialog(QDialog):
         form.addRow("Data installazione:", self.data_inst_edit)
         form.addRow("Garanzia:", self.garanzia_spin)
         form.addRow("Stato:", self.stato_combo)
+        form.addRow("Centralina rif.:", self.centralina_combo)
         form.addRow("Descrizione:", self.descrizione_edit)
 
         layout.addLayout(form)
@@ -81,12 +84,27 @@ class DispositivoDialog(QDialog):
         if query.exec("SELECT tipo_id, nome_tipo FROM Tipi_Dispositivi ORDER BY nome_tipo"):
             while query.next():
                 self.tipo_combo.addItem(query.value(1), query.value(0))
+        self._load_centraline()
+
+    def _load_centraline(self):
+        self.centralina_combo.clear()
+        self.centralina_combo.addItem("— Nessuna —", None)
+        q = QSqlQuery(self.db)
+        if q.exec("""
+            SELECT d.dispositivo_id, d.modello || ' (SN: ' || COALESCE(d.matricola,'—') || ')'
+            FROM Inventario_Dispositivi d
+            JOIN Tipi_Dispositivi t ON d.tipo_id = t.tipo_id
+            WHERE LOWER(t.nome_tipo) = 'centralina'
+            ORDER BY d.modello
+        """):
+            while q.next():
+                self.centralina_combo.addItem(q.value(1), q.value(0))
 
     def _load_dispositivo(self):
         query = QSqlQuery(self.db)
         query.prepare("""
             SELECT modello, matricola, fornitore, data_installazione,
-                   garanzia_mesi, stato, descrizione, tipo_id
+                   garanzia_mesi, stato, descrizione, tipo_id, parent_dispositivo_id
             FROM Inventario_Dispositivi WHERE dispositivo_id = ?
         """)
         query.addBindValue(self.dispositivo_id)
@@ -111,6 +129,11 @@ class DispositivoDialog(QDialog):
 
         self.descrizione_edit.setPlainText(query.value(6) or "")
 
+        parent_id = query.value(8)
+        idx = self.centralina_combo.findData(parent_id)
+        if idx >= 0:
+            self.centralina_combo.setCurrentIndex(idx)
+
         tipo_id = query.value(7)
         idx = self.tipo_combo.findData(tipo_id)
         if idx >= 0:
@@ -128,14 +151,15 @@ class DispositivoDialog(QDialog):
             query.prepare("""
                 INSERT INTO Inventario_Dispositivi
                     (modello, matricola, fornitore, data_installazione, garanzia_mesi,
-                     stato, descrizione, tipo_id, porta_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     stato, descrizione, tipo_id, parent_dispositivo_id, porta_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """)
         else:
             query.prepare("""
                 UPDATE Inventario_Dispositivi
                 SET modello=?, matricola=?, fornitore=?, data_installazione=?,
-                    garanzia_mesi=?, stato=?, descrizione=?, tipo_id=?
+                    garanzia_mesi=?, stato=?, descrizione=?, tipo_id=?,
+                    parent_dispositivo_id=?
                 WHERE dispositivo_id=?
             """)
 
@@ -147,6 +171,7 @@ class DispositivoDialog(QDialog):
         query.addBindValue(self.stato_combo.currentText())
         query.addBindValue(self.descrizione_edit.toPlainText().strip() or None)
         query.addBindValue(self.tipo_combo.currentData())
+        query.addBindValue(self.centralina_combo.currentData())
 
         if self.dispositivo_id is None:
             query.addBindValue(self.porta_id)

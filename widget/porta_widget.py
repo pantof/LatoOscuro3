@@ -22,7 +22,7 @@ COLOR_IN_SCADENZA = QColor(255, 220, 130) # giallo/arancio
 
 class PortaDetailWidget(QWidget):
 
-    COLS_DEV = ["Tipo", "Modello", "Matricola/SN", "Installato il", "Garanzia", "Scade il", "Stato", "Fornitore"]
+    COLS_DEV = ["Tipo", "Modello", "Matricola/SN", "Centralina", "Installato il", "Garanzia", "Scade il", "Stato", "Fornitore"]
 
     def __init__(self, db: QSqlDatabase, parent=None):
         super().__init__(parent)
@@ -176,9 +176,11 @@ class PortaDetailWidget(QWidget):
         q = QSqlQuery(self.db)
         q.prepare("""
             SELECT d.dispositivo_id, t.nome_tipo, d.modello, d.matricola,
+                   COALESCE(c.modello, '—') AS centralina,
                    d.data_installazione, d.garanzia_mesi, d.stato, d.fornitore
             FROM Inventario_Dispositivi d
             JOIN Tipi_Dispositivi t ON d.tipo_id = t.tipo_id
+            LEFT JOIN Inventario_Dispositivi c ON d.parent_dispositivo_id = c.dispositivo_id
             WHERE d.porta_id = ?
             ORDER BY t.nome_tipo, d.modello
         """)
@@ -193,10 +195,11 @@ class PortaDetailWidget(QWidget):
             tipo            = q.value(1) or ""
             modello         = q.value(2) or ""
             matricola       = q.value(3) or ""
-            data_inst_str   = q.value(4) or ""
-            garanzia_mesi   = q.value(5)
-            stato           = q.value(6) or ""
-            fornitore       = q.value(7) or ""
+            centralina      = q.value(4) or "—"
+            data_inst_str   = q.value(5) or ""
+            garanzia_mesi   = q.value(6)
+            stato           = q.value(7) or ""
+            fornitore       = q.value(8) or ""
 
             # Data installazione formattata
             if data_inst_str:
@@ -220,7 +223,7 @@ class PortaDetailWidget(QWidget):
 
             garanzia_txt = f"{int(garanzia_mesi)} mesi" if garanzia_mesi else "—"
 
-            values = [tipo, modello, matricola, data_inst_fmt,
+            values = [tipo, modello, matricola, centralina, data_inst_fmt,
                       garanzia_txt, scadenza_fmt, stato, fornitore]
 
             row = self.dev_table.rowCount()
