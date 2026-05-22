@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QColor
 
 from widget.dispositivo_dialog import DispositivoDialog
-from widget.installazione_dialog import InstallazionDialog
+from widget.collega_porta_dialog import CollegaPortaDialog
 
 # Soglia (giorni) entro cui la garanzia è considerata "in scadenza"
 SOGLIA_SCADENZA_GIORNI = 90
@@ -85,13 +85,13 @@ class PortaDetailWidget(QWidget):
         dev_layout.addWidget(self.dev_table)
 
         btn_row = QHBoxLayout()
-        self.btn_installa = QPushButton("📦  Installa da Catalogo")
+        self.btn_installa = QPushButton("Collega da Magazzino")
         self.btn_aggiungi = QPushButton("+ Aggiungi Manuale")
         self.btn_modifica = QPushButton("Modifica")
         self.btn_rimuovi  = QPushButton("Rimuovi")
-        self.btn_installa.setToolTip("Scegli un articolo dal catalogo materiali e installalo su questa porta")
-        self.btn_aggiungi.setToolTip("Aggiungi un dispositivo senza passare dal catalogo")
-        self.btn_installa.clicked.connect(self._installa_da_catalogo)
+        self.btn_installa.setToolTip("Collega un materiale fisico presente in magazzino a questa porta")
+        self.btn_aggiungi.setToolTip("Aggiungi un dispositivo manuale senza passare dal magazzino")
+        self.btn_installa.clicked.connect(self._collega_da_magazzino)
         self.btn_aggiungi.clicked.connect(self._aggiungi_dispositivo)
         self.btn_modifica.clicked.connect(self._modifica_dispositivo)
         self.btn_rimuovi.clicked.connect(self._rimuovi_dispositivo)
@@ -292,11 +292,16 @@ class PortaDetailWidget(QWidget):
     # Azioni dispositivi
     # ------------------------------------------------------------------
 
-    def _installa_da_catalogo(self):
+    def _collega_da_magazzino(self):
         if self.current_porta_id is None:
             return
         nome_porta = self.nome_edit.text() or f"Porta {self.current_porta_id}"
-        dlg = InstallazionDialog(self.db, self.current_porta_id, nome_porta, parent=self)
+        dlg = CollegaPortaDialog(
+            self.db,
+            porta_id=self.current_porta_id,
+            nome_porta=nome_porta,
+            parent=self
+        )
         if dlg.exec():
             self._load_dispositivi(self.current_porta_id)
             self._load_interconnessioni(self.current_porta_id)
