@@ -1,16 +1,19 @@
 # This Python file uses the following encoding: utf-8
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QLineEdit, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QLabel,
     QTableWidget, QTableWidgetItem, QPushButton,
     QMessageBox, QHeaderView, QAbstractItemView
 )
 from PySide6.QtSql import QSqlDatabase, QSqlQuery
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
+
+from widget.tree_dialogs import PortaTreeDialog
 
 
 class LocaleDetailWidget(QWidget):
 
+    content_changed = Signal()   # emesso dopo aggiunta porta → aggiorna albero
     COLS_PORTE = ["Porta", "Note", "N. Dispositivi"]
 
     def __init__(self, db: QSqlDatabase, parent=None):
@@ -38,7 +41,15 @@ class LocaleDetailWidget(QWidget):
         self.save_btn.clicked.connect(self._save)
         layout.addWidget(self.save_btn)
 
-        layout.addWidget(QLabel("Porte in questo locale:"))
+        # Intestazione lista porte con pulsante Aggiungi
+        porte_header = QHBoxLayout()
+        porte_header.addWidget(QLabel("Porte in questo locale:"))
+        porte_header.addStretch()
+        self.btn_aggiungi_porta = QPushButton("+ Aggiungi Porta")
+        self.btn_aggiungi_porta.clicked.connect(self._aggiungi_porta)
+        porte_header.addWidget(self.btn_aggiungi_porta)
+        layout.addLayout(porte_header)
+
         self.porte_table = QTableWidget()
         self.porte_table.setColumnCount(len(self.COLS_PORTE))
         self.porte_table.setHorizontalHeaderLabels(self.COLS_PORTE)
@@ -47,6 +58,8 @@ class LocaleDetailWidget(QWidget):
         self.porte_table.verticalHeader().setVisible(False)
         self.porte_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         layout.addWidget(self.porte_table)
+
+    # ------------------------------------------------------------------
 
     def clear_form(self):
         self.current_locale_id = None
@@ -74,13 +87,17 @@ class LocaleDetailWidget(QWidget):
             return
         self.nome_edit.setText(q.value(0) or "")
         self.descrizione_edit.setText(q.value(1) or "")
-        edificio = q.value(2)
-        piano    = q.value(3)
+        edificio, piano = q.value(2), q.value(3)
         if edificio:
             self.posizione_edit.setText(f"{edificio}  >  {piano}")
 
-        q2 = QSqlQuery(self.db)
-        q2.prepare("""
+        self._load_porte(locale_id)
+        self.setEnabled(True)
+
+    def _load_porte(self, locale_id: int):
+        self.porte_table.setRowCount(0)
+        q = QSqlQuery(self.db)
+        q.prepare("""
             SELECT po.nome_porta, COALESCE(po.note, ''), COUNT(d.dispositivo_id)
             FROM Porte po
             LEFT JOIN Inventario_Dispositivi d ON d.porta_id = po.porta_id
@@ -88,17 +105,23 @@ class LocaleDetailWidget(QWidget):
             GROUP BY po.porta_id, po.nome_porta, po.note
             ORDER BY po.nome_porta
         """)
-        q2.addBindValue(locale_id)
-        if q2.exec():
-            while q2.next():
+        q.addBindValue(locale_id)
+        if q.exec():
+            while q.next():
                 row = self.porte_table.rowCount()
                 self.porte_table.insertRow(row)
-                for col, val in enumerate([q2.value(0), q2.value(1), str(q2.value(2))]):
+                for col, val in enumerate([q.value(0), q.value(1), str(q.value(2))]):
                     item = QTableWidgetItem(val)
                     item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
                     self.porte_table.setItem(row, col, item)
 
-        self.setEnabled(True)
+    def _aggiungi_porta(self):
+        if self.current_locale_id is None:
+            return
+        dlg = PortaTreeDialog(self.db, locale_id=self.current_locale_id, parent=self)
+        if dlg.exec():
+            self._load_porte(self.current_locale_id)
+            self.content_changed.emit()
 
     def _save(self):
         if self.current_locale_id is None:
@@ -110,5 +133,6 @@ class LocaleDetailWidget(QWidget):
         q.addBindValue(self.current_locale_id)
         if q.exec():
             QMessageBox.information(self, "Salvato", "Locale aggiornato.")
+            self.content_changed.emit()
         else:
             QMessageBox.critical(self, "Errore DB", q.lastError().text())

@@ -10,6 +10,8 @@ from widget.locale_detail_widget  import LocaleDetailWidget
 from widget.piano_detail_widget   import PianoDetailWidget
 from widget.edificio_detail_widget import EdificioDetailWidget
 from widget.garanzie_widget       import GaranzieWidget
+from widget.catalogo_widget       import CatalogoWidget
+from widget.magazzino_widget      import MagazzinoWidget
 from widget.location_manager      import LocationManagerWidget
 
 
@@ -30,9 +32,17 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        self.act_garanzie = toolbar.addAction("Scadenzario Garanzie")
+        self.act_catalogo = toolbar.addAction("📦  Catalogo Materiali")
+        self.act_catalogo.setCheckable(True)
+        self.act_catalogo.triggered.connect(self._toggle_catalogo)
+
+        self.act_garanzie = toolbar.addAction("🔔  Scadenzario Garanzie")
         self.act_garanzie.setCheckable(True)
         self.act_garanzie.triggered.connect(self._toggle_garanzie)
+
+        self.act_magazzino = toolbar.addAction("🏪  Magazzino")
+        self.act_magazzino.setCheckable(True)
+        self.act_magazzino.triggered.connect(self._toggle_magazzino)
 
         # --- Layout centrale ---
         central_widget = QWidget()
@@ -82,12 +92,25 @@ class MainWindow(QMainWindow):
         self.garanzie_widget = GaranzieWidget(self.db)
         self.main_stack.addWidget(self.garanzie_widget)      # 5
 
+        # indice 6 — catalogo materiali
+        self.catalogo_widget = CatalogoWidget(self.db)
+        self.main_stack.addWidget(self.catalogo_widget)      # 6
+
+        # indice 7 — magazzino materiali fisici
+        self.magazzino_widget = MagazzinoWidget(self.db)
+        self.main_stack.addWidget(self.magazzino_widget)     # 7
+
         main_layout.addWidget(nav_panel)
         main_layout.addWidget(self.main_stack, stretch=1)
 
-        # Connessioni
+        # Connessioni albero
         self.asset_tree.item_selected.connect(self._on_asset_selected)
         self.asset_tree.tree_changed.connect(self._on_tree_changed)
+
+        # Connessioni content_changed dai widget di dettaglio → aggiorna albero
+        self.locale_widget.content_changed.connect(self.asset_tree.load_location_tree)
+        self.piano_widget.content_changed.connect(self.asset_tree.load_location_tree)
+        self.edificio_widget.content_changed.connect(self.asset_tree.load_location_tree)
 
         self.main_stack.setCurrentIndex(0)
 
@@ -97,6 +120,8 @@ class MainWindow(QMainWindow):
 
     def _on_asset_selected(self, item_type: str, item_id: int):
         self.act_garanzie.setChecked(False)
+        self.act_catalogo.setChecked(False)
+        self.act_magazzino.setChecked(False)
         if item_type == "porta":
             self.main_stack.setCurrentWidget(self.porta_widget)
             self.porta_widget.load_porta_data(item_id)
@@ -112,10 +137,30 @@ class MainWindow(QMainWindow):
         else:
             self.main_stack.setCurrentIndex(0)
 
+    def _toggle_catalogo(self, checked: bool):
+        self.act_garanzie.setChecked(False)
+        self.act_magazzino.setChecked(False)
+        if checked:
+            self.main_stack.setCurrentWidget(self.catalogo_widget)
+            self.catalogo_widget.load_data()
+        else:
+            self.main_stack.setCurrentIndex(0)
+
     def _toggle_garanzie(self, checked: bool):
+        self.act_catalogo.setChecked(False)
+        self.act_magazzino.setChecked(False)
         if checked:
             self.main_stack.setCurrentWidget(self.garanzie_widget)
             self.garanzie_widget.load_data()
+        else:
+            self.main_stack.setCurrentIndex(0)
+
+    def _toggle_magazzino(self, checked: bool):
+        self.act_catalogo.setChecked(False)
+        self.act_garanzie.setChecked(False)
+        if checked:
+            self.main_stack.setCurrentWidget(self.magazzino_widget)
+            self.magazzino_widget.load_data()
         else:
             self.main_stack.setCurrentIndex(0)
 
